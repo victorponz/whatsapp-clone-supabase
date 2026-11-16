@@ -11,6 +11,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\Routing\Annotation\Route;
 use Doctrine\Persistence\ManagerRegistry;
+use Psr\Log\LoggerInterface;
 
 class ChatController extends AbstractController
 {
@@ -25,7 +26,7 @@ class ChatController extends AbstractController
     }
 
     #[Route('/post/touser/{toUserId}', name: 'sendMessage')]
-    public function post(ManagerRegistry $doctrine, Request $request, $toUserId): JsonResponse
+    public function post(ManagerRegistry $doctrine, Request $request, LoggerInterface $logger, $toUserId): JsonResponse
     {
         $message = new Message();
         $form = $this->createForm(MessageType::class, $message);
@@ -43,7 +44,7 @@ class ChatController extends AbstractController
             $entityManager->flush();
 
             // Publicar en Supabase Realtime via Broadcast
-            $this->publishToSupabase($message);
+            $this->publishToSupabase($message, $logger);
         }
 
         return new JsonResponse([], Response::HTTP_OK);
@@ -78,7 +79,7 @@ class ChatController extends AbstractController
      * El canal se nombra como "chat:{menorId}-{mayorId}" para que ambos
      * usuarios compartan siempre el mismo canal independientemente de quién envía.
      */
-    private function publishToSupabase(Message $message): void
+    private function publishToSupabase(Message $message, LoggerInterface $logger): void
     {
         $supabaseUrl = $_ENV['SUPABASE_URL'];
         $supabaseKey = $_ENV['SUPABASE_ANON_KEY'];
@@ -93,7 +94,7 @@ class ChatController extends AbstractController
         $payload = [
             'messages' => [
                 [
-                    'type'    => 'broadcast',
+                    'topic'   => $channelName,
                     'event'   => 'chatmsg',
                     'payload' => [
                         'id'           => $message->getId(),
@@ -122,7 +123,19 @@ class ChatController extends AbstractController
             CURLOPT_TIMEOUT        => 5,
         ]);
 
-        curl_exec($ch);
+        $response = curl_exec($ch);
+        $status   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error    = curl_error($ch);
         curl_close($ch);
+
+        if ($response === false) {
+            $logger->error('Supabase broadcast: error de conexión', ['error' => $error, 'topic' => $channelName]);
+        } elseif ($status < 200 || $status >= 300) {
+            $logger->error('Supabase broadcast: respuesta inesperada', [
+                'status'   => $status,
+                'response' => $response,
+                'topic'    => $channelName,
+            ]);
+        }
     }
 }
