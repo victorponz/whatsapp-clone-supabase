@@ -34,7 +34,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column]
     private ?string $password = null;
 
-    #[ORM\OneToMany(mappedBy: 'User', targetEntity: Message::class)]
+    #[ORM\OneToMany(mappedBy: 'fromUser', targetEntity: Message::class)]
     private Collection $messages;
 
     #[ORM\Column]
