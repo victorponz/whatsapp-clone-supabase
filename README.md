@@ -121,12 +121,16 @@ app.js recibe el evento
 
 Cada usuario se suscribe **una sola vez**, al cargar la página, a su canal personal `user:{id}`. Symfony publica cada mensaje en el canal del emisor y en el del receptor, de modo que el receptor se entera aunque tenga abierta otra conversación.
 
+Además, todos los clientes se suscriben al canal común `users`. Cuando alguien se registra, Symfony publica en él un evento `usermsg` y el nuevo contacto aparece en la lista de todos los usuarios conectados.
+
 ---
 
 ## Estructura de ficheros relevantes
 
 ```
-├── src/Controller/ChatController.php   ← guarda mensajes y publica en Supabase
+├── src/Service/SupabaseBroadcaster.php ← publica eventos en Supabase Realtime
+├── src/Controller/ChatController.php   ← guarda mensajes y los publica en user:{id}
+├── src/Controller/RegistrationController.php ← registra usuarios y los publica en users
 ├── public/js/app.js                    ← suscripción Supabase Realtime + DOM
 ├── templates/base.html.twig            ← carga el SDK de Supabase
 └── .env                                ← credenciales DB y Supabase

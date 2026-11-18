@@ -11,7 +11,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\Routing\Annotation\Route;
 use Doctrine\Persistence\ManagerRegistry;
-use Psr\Log\LoggerInterface;
+use App\Service\SupabaseBroadcaster;
 
 class ChatController extends AbstractController
 {
@@ -26,7 +26,7 @@ class ChatController extends AbstractController
     }
 
     #[Route('/post/touser/{toUserId}', name: 'sendMessage')]
-    public function post(ManagerRegistry $doctrine, Request $request, LoggerInterface $logger, $toUserId): JsonResponse
+    public function post(ManagerRegistry $doctrine, Request $request, SupabaseBroadcaster $broadcaster, $toUserId): JsonResponse
     {
         $message = new Message();
         $form = $this->createForm(MessageType::class, $message);
@@ -43,8 +43,21 @@ class ChatController extends AbstractController
             $entityManager->persist($message);
             $entityManager->flush();
 
-            // Publicar en Supabase Realtime via Broadcast
-            $this->publishToSupabase($message, $logger);
+            // Publicar en Supabase Realtime: en el canal personal del emisor y en el del receptor
+            $broadcaster->broadcast(
+                ['user:' . $message->getFromUser()->getId(), 'user:' . $toUser->getId()],
+                'chatmsg',
+                [
+                    'id'           => $message->getId(),
+                    'fromUserId'   => $message->getFromUser()->getId(),
+                    'toUserId'     => $toUser->getId(),
+                    'fromUserName' => $message->getFromUser()->getUsername(),
+                    'toUserName'   => $toUser->getUsername(),
+                    'text'         => $message->getText(),
+                    'timestamp'    => ['date' => $message->getTimestamp()->format('Y-m-d H:i:s')],
+                    'type'         => 'chatmsg',
+                ]
+            );
         }
 
         return new JsonResponse([], Response::HTTP_OK);
@@ -72,71 +85,5 @@ class ChatController extends AbstractController
         }
 
         return new JsonResponse($data, Response::HTTP_OK);
-    }
-
-    /**
-     * Publica el mensaje en Supabase Realtime (Broadcast).
-     * Cada usuario escucha su canal personal "user:{id}", así que el mensaje
-     * se publica en el canal del emisor y en el del receptor. De este modo el
-     * receptor se entera aunque tenga abierto otro chat (contador de no leídos).
-     */
-    private function publishToSupabase(Message $message, LoggerInterface $logger): void
-    {
-        $supabaseUrl = $_ENV['SUPABASE_URL'];
-        $supabaseKey = $_ENV['SUPABASE_ANON_KEY'];
-
-        $fromUser = $message->getFromUser();
-        $toUser   = $message->getToUser();
-
-        $data = [
-            'id'           => $message->getId(),
-            'fromUserId'   => $fromUser->getId(),
-            'toUserId'     => $toUser->getId(),
-            'fromUserName' => $fromUser->getUsername(),
-            'toUserName'   => $toUser->getUsername(),
-            'text'         => $message->getText(),
-            'timestamp'    => ['date' => $message->getTimestamp()->format('Y-m-d H:i:s')],
-            'type'         => 'chatmsg',
-        ];
-
-        // array_unique por si alguien se envía un mensaje a sí mismo
-        $topics = array_unique(['user:' . $fromUser->getId(), 'user:' . $toUser->getId()]);
-
-        $payload = ['messages' => []];
-        foreach ($topics as $topic) {
-            $payload['messages'][] = [
-                'topic'   => $topic,
-                'event'   => 'chatmsg',
-                'payload' => $data,
-            ];
-        }
-
-        $ch = curl_init("{$supabaseUrl}/realtime/v1/api/broadcast");
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'apikey: ' . $supabaseKey,
-                'Authorization: Bearer ' . $supabaseKey,
-            ],
-            CURLOPT_POSTFIELDS     => json_encode($payload),
-            CURLOPT_TIMEOUT        => 5,
-        ]);
-
-        $response = curl_exec($ch);
-        $status   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error    = curl_error($ch);
-        curl_close($ch);
-
-        if ($response === false) {
-            $logger->error('Supabase broadcast: error de conexión', ['error' => $error, 'topics' => $topics]);
-        } elseif ($status < 200 || $status >= 300) {
-            $logger->error('Supabase broadcast: respuesta inesperada', [
-                'status'   => $status,
-                'response' => $response,
-                'topics'   => $topics,
-            ]);
-        }
     }
 }

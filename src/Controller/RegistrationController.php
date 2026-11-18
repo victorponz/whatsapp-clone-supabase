@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Entity\User;
 use App\Form\RegistrationFormType;
+use App\Service\SupabaseBroadcaster;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -18,7 +19,7 @@ use Symfony\Component\String\Slugger\SluggerInterface;
 class RegistrationController extends AbstractController
 {
     #[Route('/register', name: 'app_register')]
-    public function register(Request $request, UserPasswordHasherInterface $userPasswordHasher, EntityManagerInterface $entityManager, SluggerInterface $slugger): Response
+    public function register(Request $request, UserPasswordHasherInterface $userPasswordHasher, EntityManagerInterface $entityManager, SluggerInterface $slugger, SupabaseBroadcaster $broadcaster): Response
     {
         $user = new User();
         $form = $this->createForm(RegistrationFormType::class, $user);
@@ -61,7 +62,16 @@ class RegistrationController extends AbstractController
 
             $entityManager->persist($user);
             $entityManager->flush();
-            // do anything else you need here, like send an email
+
+            // Avisar en tiempo real a todos los clientes conectados del nuevo contacto
+            $broadcaster->broadcast(['users'], 'usermsg', [
+                'type'          => 'usermsg',
+                'id'            => $user->getId(),
+                'userName'      => $user->getUsername(),
+                'info'          => $user->getInfo(),
+                'image'         => $user->getImage() ?? 'avatar.webp',
+                'lastTimestamp' => null,
+            ]);
 
             return $this->redirectToRoute('chat');
         }

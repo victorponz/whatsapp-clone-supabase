@@ -35,6 +35,28 @@ function subscribeToUser(myId) {
 }
 
 // ─────────────────────────────────────────────
+//  Suscripción al canal común de usuarios
+//  Por "users" llega un evento cada vez que se
+//  registra alguien nuevo.
+// ─────────────────────────────────────────────
+function subscribeToUsers() {
+    supabaseClient
+        .channel('users')
+        .on('broadcast', { event: 'usermsg' }, function (envelope) {
+            handleNewUser(envelope.payload);
+        })
+        .subscribe();
+}
+
+function handleNewUser(user) {
+    // No me añado a mí mismo ni duplico un contacto que ya está en la lista
+    if (user.id == userId) return;
+    if ($('div.contact[data-id="' + user.id + '"]').length) return;
+
+    createDOMContact(user);
+}
+
+// ─────────────────────────────────────────────
 //  Gestión del mensaje recibido en tiempo real
 // ─────────────────────────────────────────────
 function handleIncomingMessage(msg) {
@@ -178,5 +200,6 @@ function loadContacts() {
 
 $(document).ready(function () {
     subscribeToUser(userId);
+    subscribeToUsers();
     loadContacts();
 });
