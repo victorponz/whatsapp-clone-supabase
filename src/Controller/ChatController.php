@@ -75,9 +75,10 @@ class ChatController extends AbstractController
     }
 
     /**
-     * Publica el mensaje en el canal de Supabase Realtime (Broadcast).
-     * El canal se nombra como "chat:{menorId}-{mayorId}" para que ambos
-     * usuarios compartan siempre el mismo canal independientemente de quién envía.
+     * Publica el mensaje en Supabase Realtime (Broadcast).
+     * Cada usuario escucha su canal personal "user:{id}", así que el mensaje
+     * se publica en el canal del emisor y en el del receptor. De este modo el
+     * receptor se entera aunque tenga abierto otro chat (contador de no leídos).
      */
     private function publishToSupabase(Message $message, LoggerInterface $logger): void
     {
@@ -87,28 +88,28 @@ class ChatController extends AbstractController
         $fromUser = $message->getFromUser();
         $toUser   = $message->getToUser();
 
-        $channelName = 'chat:' . min($fromUser->getId(), $toUser->getId())
-                               . '-'
-                               . max($fromUser->getId(), $toUser->getId());
-
-        $payload = [
-            'messages' => [
-                [
-                    'topic'   => $channelName,
-                    'event'   => 'chatmsg',
-                    'payload' => [
-                        'id'           => $message->getId(),
-                        'fromUserId'   => $fromUser->getId(),
-                        'toUserId'     => $toUser->getId(),
-                        'fromUserName' => $fromUser->getUsername(),
-                        'toUserName'   => $toUser->getUsername(),
-                        'text'         => $message->getText(),
-                        'timestamp'    => ['date' => $message->getTimestamp()->format('Y-m-d H:i:s')],
-                        'type'         => 'chatmsg',
-                    ],
-                ],
-            ],
+        $data = [
+            'id'           => $message->getId(),
+            'fromUserId'   => $fromUser->getId(),
+            'toUserId'     => $toUser->getId(),
+            'fromUserName' => $fromUser->getUsername(),
+            'toUserName'   => $toUser->getUsername(),
+            'text'         => $message->getText(),
+            'timestamp'    => ['date' => $message->getTimestamp()->format('Y-m-d H:i:s')],
+            'type'         => 'chatmsg',
         ];
+
+        // array_unique por si alguien se envía un mensaje a sí mismo
+        $topics = array_unique(['user:' . $fromUser->getId(), 'user:' . $toUser->getId()]);
+
+        $payload = ['messages' => []];
+        foreach ($topics as $topic) {
+            $payload['messages'][] = [
+                'topic'   => $topic,
+                'event'   => 'chatmsg',
+                'payload' => $data,
+            ];
+        }
 
         $ch = curl_init("{$supabaseUrl}/realtime/v1/api/broadcast");
         curl_setopt_array($ch, [
@@ -129,12 +130,12 @@ class ChatController extends AbstractController
         curl_close($ch);
 
         if ($response === false) {
-            $logger->error('Supabase broadcast: error de conexión', ['error' => $error, 'topic' => $channelName]);
+            $logger->error('Supabase broadcast: error de conexión', ['error' => $error, 'topics' => $topics]);
         } elseif ($status < 200 || $status >= 300) {
             $logger->error('Supabase broadcast: respuesta inesperada', [
                 'status'   => $status,
                 'response' => $response,
-                'topic'    => $channelName,
+                'topics'   => $topics,
             ]);
         }
     }

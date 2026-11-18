@@ -10,7 +10,6 @@ const supabaseClient   = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANO
 var userId             = document.getElementById('user').getAttribute('data-user-id');
 var lastContact;
 var lastContactContainer;
-var currentChannel     = null;   // canal Supabase activo
 
 const templateOther  = document.getElementById('templateOther').innerHTML;
 const templateMe     = document.getElementById('templateMe').innerHTML;
@@ -21,20 +20,14 @@ const scrollTo       = document.getElementById('scroll-to');
 var contactId        = -1;
 
 // ─────────────────────────────────────────────
-//  Suscripción al canal Supabase del par de usuarios
+//  Suscripción al canal personal del usuario
+//  Se hace una sola vez al cargar la página: por
+//  "user:{id}" llegan TODOS los mensajes que envío
+//  o recibo, sea cual sea el chat que tengo abierto.
 // ─────────────────────────────────────────────
-function subscribeToChat(myId, otherId) {
-    // Desuscribirse del canal anterior
-    if (currentChannel) {
-        supabaseClient.removeChannel(currentChannel);
-        currentChannel = null;
-    }
-
-    // Canal simétrico: siempre el mismo sin importar quién envía
-    const channelName = 'chat:' + Math.min(myId, otherId) + '-' + Math.max(myId, otherId);
-
-    currentChannel = supabaseClient
-        .channel(channelName)
+function subscribeToUser(myId) {
+    supabaseClient
+        .channel('user:' + myId)
         .on('broadcast', { event: 'chatmsg' }, function (envelope) {
             handleIncomingMessage(envelope.payload);
         })
@@ -68,8 +61,6 @@ function bindContactsClick() {
         contactId = $(this).attr('data-id');
 
         if (lastContact != contactId) {
-            // Suscribirse al canal del par antes de cargar mensajes
-            subscribeToChat(userId, contactId);
             loadMessages(contactId);
 
             $(this).removeClass('bg-white');
@@ -186,5 +177,6 @@ function loadContacts() {
 }
 
 $(document).ready(function () {
+    subscribeToUser(userId);
     loadContacts();
 });

@@ -108,16 +108,18 @@ POST /post/touser/{id}  →  Symfony guarda en MySQL via Doctrine
   │
   ▼
 PHP hace curl → Supabase Broadcast API
-  canal: "chat:{min(idA,idB)}-{max(idA,idB)}"
+  canales: "user:{idA}" y "user:{idB}"
   │
   ▼
-Supabase empuja el evento al navegador de Usuario B
+Supabase empuja el evento a los navegadores de A y de B
   │
   ▼
-app.js recibe el evento → createDOMMessage() → el mensaje aparece
+app.js recibe el evento
+  ├─ si es del chat abierto → createDOMMessage() → el mensaje aparece
+  └─ si es de otro chat     → showBadge() → contador de no leídos
 ```
 
-El canal se nombra siempre con los IDs de los dos usuarios ordenados de menor a mayor (`chat:3-7`), de forma que emisor y receptor usan el mismo canal independientemente de quién envía.
+Cada usuario se suscribe **una sola vez**, al cargar la página, a su canal personal `user:{id}`. Symfony publica cada mensaje en el canal del emisor y en el del receptor, de modo que el receptor se entera aunque tenga abierta otra conversación.
 
 ---
 
